@@ -1,0 +1,24 @@
+{
+  "name": "pokefantasy_backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "moment": "^2.30.1",
+    "mongoose": "^9.6.1",
+    "node-cron": "^4.2.1",
+    "socket.io": "^4.8.3",
+    "@pkmn/sim": "^0.10.11"
+  }
+}
