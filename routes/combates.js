@@ -1,6 +1,19 @@
 const express = require('express');
 const router = express.Router();
 const Sala = require('../models/Sala');
+
+function filtroSala(id) {
+    if (!id) return { identificador: null };
+    const str = String(id).trim().toUpperCase();
+    return {
+        $or: [
+            { identificador: str },
+            { identificador: String(id).trim() },
+            ...(!isNaN(id) ? [{ identificador: Number(id) }] : [])
+        ]
+    };
+}
+
 const {
     esHorarioDeCombate,
     generarYGuardarCalendario,
@@ -18,7 +31,7 @@ const {
  */
 router.get('/:id/combate-actual', async (req, res) => {
     try {
-        const salaId = parseInt(req.params.id);
+        const salaId = req.params.id;
         const { combateId, usuario_id } = req.query;
 
         let combate = null;
@@ -28,7 +41,7 @@ router.get('/:id/combate-actual', async (req, res) => {
 
         if (!combate && usuario_id) {
             for (const c of combatesActivos.values()) {
-                if (c.salaId === salaId && (
+                if (String(c.salaId) === String(salaId) && (
                     c.p1.toLowerCase().trim() === usuario_id.toLowerCase().trim() ||
                     c.p2.toLowerCase().trim() === usuario_id.toLowerCase().trim()
                 )) {
@@ -85,10 +98,10 @@ router.get('/:id/combate-actual', async (req, res) => {
  */
 router.get('/:id/datos-showdown', async (req, res) => {
     try {
-        const salaId = parseInt(req.params.id);
+        const salaId = req.params.id;
         const { usuario_id } = req.query;
 
-        const sala = await Sala.findOne({ identificador: salaId });
+        const sala = await Sala.findOne(filtroSala(salaId));
         if (!sala) return res.status(404).json({ error: "Sala no encontrada" });
 
         const uEmailNorm = (usuario_id || '').toLowerCase().trim();
@@ -158,13 +171,13 @@ router.get('/:id/datos-showdown', async (req, res) => {
  */
 router.post('/:id/guardar-nick-showdown', async (req, res) => {
     try {
-        const salaId = parseInt(req.params.id);
+        const salaId = req.params.id;
         const { usuario_id, nick_showdown } = req.body;
         if (!usuario_id || !nick_showdown) {
             return res.status(400).json({ error: "usuario_id y nick_showdown son requeridos" });
         }
 
-        const sala = await Sala.findOne({ identificador: salaId });
+        const sala = await Sala.findOne(filtroSala(salaId));
         if (!sala) return res.status(404).json({ error: "Sala no encontrada" });
 
         const uEmailNorm = usuario_id.toLowerCase().trim();
@@ -190,10 +203,10 @@ router.post('/:id/guardar-nick-showdown', async (req, res) => {
  */
 router.post('/:id/reportar-resultado', async (req, res) => {
     try {
-        const salaId = parseInt(req.params.id);
+        const salaId = req.params.id;
         const { ganador, detalles } = req.body;
 
-        const sala = await Sala.findOne({ identificador: salaId });
+        const sala = await Sala.findOne(filtroSala(salaId));
         if (!sala) return res.status(404).json({ error: "Sala no encontrada" });
 
         const jornada = sala.jornada_actual || 1;
@@ -247,13 +260,13 @@ router.post('/:id/reportar-resultado', async (req, res) => {
  */
 router.get('/:id/calendario', async (req, res) => {
     try {
-        const salaId = parseInt(req.params.id);
-        let sala = await Sala.findOne({ identificador: salaId });
+        const salaId = req.params.id;
+        let sala = await Sala.findOne(filtroSala(salaId));
         if (!sala) return res.status(404).json({ error: "Sala no encontrada" });
 
         // Si no tiene calendario y tiene jugadores, generarlo
         if ((!sala.calendario || sala.calendario.length === 0) && sala.equipos_jugadores.length >= 2) {
-            sala = await generarYGuardarCalendario(salaId);
+            sala = await generarYGuardarCalendario(sala.identificador);
         }
 
         res.json({
@@ -272,11 +285,11 @@ router.get('/:id/calendario', async (req, res) => {
  */
 router.post('/:id/generar-calendario', async (req, res) => {
     try {
-        const salaId = parseInt(req.params.id);
+        const salaId = req.params.id;
         const sala = await generarYGuardarCalendario(salaId);
         if (global.io) {
-            global.io.to(`sala_${salaId}`).emit('actualizacion_calendario', {
-                identificador: salaId,
+            global.io.to(`sala_${sala.identificador}`).emit('actualizacion_calendario', {
+                identificador: sala.identificador,
                 jornada_actual: sala.jornada_actual
             });
         }
@@ -292,9 +305,9 @@ router.post('/:id/generar-calendario', async (req, res) => {
  */
 router.get('/:id/estado-combate', async (req, res) => {
     try {
-        const salaId = parseInt(req.params.id);
+        const salaId = req.params.id;
         const usuarioId = req.query.usuario_id;
-        const sala = await Sala.findOne({ identificador: salaId });
+        const sala = await Sala.findOne(filtroSala(salaId));
         if (!sala) return res.status(404).json({ error: "Sala no encontrada" });
 
         const horarioActivo = esHorarioDeCombate();
@@ -339,7 +352,7 @@ router.get('/:id/estado-combate', async (req, res) => {
  */
 router.post('/:id/marcar-listo', async (req, res) => {
     try {
-        const salaId = parseInt(req.params.id);
+        const salaId = req.params.id;
         const { usuario_id } = req.body;
 
         if (!usuario_id) return res.status(400).json({ error: "usuario_id es requerido" });
@@ -348,7 +361,7 @@ router.post('/:id/marcar-listo', async (req, res) => {
             return res.status(403).json({ error: "Los combates solo están activos los domingos de 19:00 a 19:30." });
         }
 
-        const sala = await Sala.findOne({ identificador: salaId });
+        const sala = await Sala.findOne(filtroSala(salaId));
         if (!sala) return res.status(404).json({ error: "Sala no encontrada" });
 
         const jornadaActual = sala.jornada_actual || 1;

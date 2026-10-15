@@ -53,7 +53,7 @@ const SalaSchema = new mongoose.Schema({
             detalles: { type: String, default: '' }
         }]
     }],
-    identificador: { type: Number, required: true, unique: true }
+    identificador: { type: mongoose.Schema.Types.Mixed, required: true, unique: true }
 }, { collection: 'salas', versionKey: false });
 
 

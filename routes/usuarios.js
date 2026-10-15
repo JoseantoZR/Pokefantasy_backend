@@ -50,8 +50,15 @@ router.put('/:correo/unirse', async (req, res) => {
             return res.status(400).json({ error: "ID de sala requerido" });
         }
 
-        // 1. Buscamos la sala primero para verificar que existe
-        const sala = await Sala.findOne({ identificador: parseInt(id_sala) });
+        // 1. Buscamos la sala primero para verificar que existe (soporta números o código de 6 caracteres)
+        const idStr = String(id_sala).trim().toUpperCase();
+        const sala = await Sala.findOne({
+            $or: [
+                { identificador: idStr },
+                { identificador: String(id_sala).trim() },
+                ...(!isNaN(id_sala) ? [{ identificador: Number(id_sala) }] : [])
+            ]
+        });
         if (!sala) {
             return res.status(404).json({ error: "La sala con ese ID no existe" });
         }
@@ -70,16 +77,16 @@ router.put('/:correo/unirse', async (req, res) => {
 
             // ACTUALIZAMOS LA SALA: Añadimos el equipo al array equipos_jugadores
             await Sala.updateOne(
-                { identificador: parseInt(id_sala) },
+                { identificador: sala.identificador },
                 { $push: { equipos_jugadores: nuevoEquipo } }
             );
-            console.log(`+ Usuario ${correo} añadido a la sala ${id_sala}`);
+            console.log(`+ Usuario ${correo} añadido a la sala ${sala.identificador}`);
         }
 
         // 3. ACTUALIZAMOS EL USUARIO: Añadimos el ID de la sala a su lista personal
         const usuario = await Usuario.findOneAndUpdate(
             { correo: correo },
-            { $addToSet: { id_salas_unidas: parseInt(id_sala) } },
+            { $addToSet: { id_salas_unidas: sala.identificador } },
             { new: true }
         );
 

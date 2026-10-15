@@ -18,17 +18,48 @@ router.get('/', async (req, res) => {
     }
 });
  
+function filtroSala(id) {
+    if (!id) return { identificador: null };
+    const str = String(id).trim().toUpperCase();
+    return {
+        $or: [
+            { identificador: str },
+            { identificador: String(id).trim() },
+            ...(!isNaN(id) ? [{ identificador: Number(id) }] : [])
+        ]
+    };
+}
+
+function generarCodigoSala() {
+    const caracteres = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let codigo = '';
+    for (let i = 0; i < 6; i++) {
+        codigo += caracteres.charAt(Math.floor(Math.random() * caracteres.length));
+    }
+    return codigo;
+}
+
+async function generarIdentificadorUnico() {
+    let codigo = '';
+    let existe = true;
+    while (existe) {
+        codigo = generarCodigoSala();
+        const salaExistente = await Sala.findOne({ identificador: codigo });
+        if (!salaExistente) {
+            existe = false;
+        }
+    }
+    return codigo;
+}
+
 /**
  * GET /salas/:id
  * Obtiene una sala por su ID
  */
 router.get('/:id', async (req, res) => {
     try {
-        const idNum = parseInt(req.params.id);
-        if (isNaN(idNum)) {
-            return res.status(400).json({ error: "ID de sala inválido" });
-        }
-        const sala = await Sala.findOne({ identificador: idNum });
+        const idParam = req.params.id;
+        const sala = await Sala.findOne(filtroSala(idParam));
         if (!sala) return res.status(404).json({ error: "Sala no encontrada" });
         res.json(sala);
     } catch (error) {
@@ -38,7 +69,7 @@ router.get('/:id', async (req, res) => {
  
 /**
  * POST /salas
- * Crea una nueva sala
+ * Crea una nueva sala con código alfanumérico de 6 caracteres
  */
 router.post('/', async (req, res) => {
     const { creador_email, nombre_sala, ...datosSala } = req.body;
@@ -48,14 +79,8 @@ router.post('/', async (req, res) => {
     }
  
     try {
-        // Obtener el siguiente ID de sala sin duplicar el esquema de Counter
-        const Counter = mongoose.models.Counter || mongoose.model('Counter');
- 
-        const counter = await Counter.findByIdAndUpdate(
-            { _id: 'salaId' },
-            { $inc: { seq: 1 } },
-            { returnDocument: 'after', upsert: true }
-        );
+        // Generar un código aleatorio de 6 caracteres (números y letras mayúsculas)
+        const nuevoIdentificador = await generarIdentificadorUnico();
  
         // Generar 6 Pokémon iniciales según la generación elegida
         const pokemonsIniciales = generarPokemonsAleatorios(datosSala.generacion || 'GEN 1', 6);
@@ -63,7 +88,7 @@ router.post('/', async (req, res) => {
         const nuevaSala = new Sala({
             ...datosSala,
             nombre: nombre_sala,
-            identificador: counter.seq,
+            identificador: nuevoIdentificador,
             mercado_disponible: pokemonsIniciales,
             equipos_jugadores: [
                 {
@@ -91,10 +116,10 @@ router.post('/', async (req, res) => {
  */
 router.post('/:id/pagar-clausula', async (req, res) => {
     const { comprador, vendedor, id_pokemon, precio } = req.body;
-    const salaId = parseInt(req.params.id);
+    const salaId = req.params.id;
 
     try {
-        const sala = await Sala.findOne({ identificador: salaId });
+        const sala = await Sala.findOne(filtroSala(salaId));
         if (!sala) return res.status(404).json({ error: "Sala no encontrada" });
 
         const equipoComprador = sala.equipos_jugadores.find(e => e.usuario_id === comprador);
@@ -183,7 +208,7 @@ router.put('/:identificador/pujar', async (req, res) => {
         if (!usuario) return res.status(404).json({ error: "Usuario no encontrado" });
  
         // 2. Buscar la sala
-        const sala = await Sala.findOne({ identificador: parseInt(identificador) });
+        const sala = await Sala.findOne(filtroSala(identificador));
         if (!sala) return res.status(404).json({ error: "Sala no encontrada" });
 
         // Comprobar que el usuario pertenece a la sala
@@ -217,7 +242,7 @@ router.put('/:identificador/pujar', async (req, res) => {
         // 5. Emitir evento WebSocket
         if (global.io) {
             global.io.emit('actualizacion_mercado', {
-                identificador: parseInt(identificador),
+                identificador: sala.identificador,
                 id_pokemon: id_pokemon,
                 nuevo_valor_puja: pokemon.puja_actual_valor,
                 nombre_pujador: usuario.nombre
@@ -243,8 +268,8 @@ router.put('/:identificador/pujar', async (req, res) => {
 router.post('/:id/cambiar-posicion', async (req, res) => {
     try {
         const { usuario_id, id_pokemon, nueva_posicion } = req.body;
-        const salaId = parseInt(req.params.id);
-        const sala = await Sala.findOne({ identificador: salaId });
+        const salaId = req.params.id;
+        const sala = await Sala.findOne(filtroSala(salaId));
         if (!sala) return res.status(404).json({ error: "Sala no encontrada" });
         
         const equipo = sala.equipos_jugadores.find(e => e.usuario_id === usuario_id);
@@ -271,7 +296,7 @@ router.post('/:id/cambiar-posicion', async (req, res) => {
         await sala.save();
 
         if (global.io) {
-            global.io.emit('actualizacion_equipo', { identificador: salaId });
+            global.io.emit('actualizacion_equipo', { identificador: sala.identificador });
         }
 
         res.json({ success: true, mensaje: "Posiciones intercambiadas" });
@@ -288,13 +313,13 @@ router.post('/:id/cambiar-posicion', async (req, res) => {
 router.post('/:id/subir-clausula', async (req, res) => {
     try {
         const { usuario_id, id_pokemon, inversion } = req.body;
-        const salaId = parseInt(req.params.id);
+        const salaId = req.params.id;
 
         if (!usuario_id || !id_pokemon || !inversion || inversion <= 0) {
             return res.status(400).json({ error: "Datos incompletos o monto inválido" });
         }
 
-        const sala = await Sala.findOne({ identificador: salaId });
+        const sala = await Sala.findOne(filtroSala(salaId));
         if (!sala) return res.status(404).json({ error: "Sala no encontrada" });
 
         const equipo = sala.equipos_jugadores.find(e => e.usuario_id === usuario_id);
@@ -316,8 +341,8 @@ router.post('/:id/subir-clausula', async (req, res) => {
         await sala.save();
 
         if (global.io) {
-            global.io.emit('actualizacion_equipo', { identificador: salaId });
-            global.io.emit('actualizacion_mercado', { identificador: salaId });
+            global.io.emit('actualizacion_equipo', { identificador: sala.identificador });
+            global.io.emit('actualizacion_mercado', { identificador: sala.identificador });
         }
 
         res.json({
@@ -334,7 +359,7 @@ router.post('/:id/subir-clausula', async (req, res) => {
 //eliminar sala
 router.delete('/:id', async (req, res) => {
   try {
-    const sala = await Sala.findOneAndDelete({ identificador: parseInt(req.params.id) });
+    const sala = await Sala.findOneAndDelete(filtroSala(req.params.id));
     if (!sala) return res.status(404).json({ error: 'Sala no encontrada' });
     res.json({ mensaje: 'Sala eliminada' });
   } catch (error) {
@@ -349,7 +374,7 @@ router.put('/unirse/:correo', async (req, res) => {
 
     try {
         // 1. Buscamos la sala
-        const sala = await Sala.findOne({ identificador: parseInt(id_sala) });
+        const sala = await Sala.findOne(filtroSala(id_sala));
         if (!sala) return res.status(404).json({ error: "La sala no existe" });
 
         // 2. Comprobamos si el usuario ya está en la sala para no duplicarlo
@@ -365,7 +390,7 @@ router.put('/unirse/:correo', async (req, res) => {
             };
             
             await Sala.updateOne(
-                { identificador: parseInt(id_sala) },
+                { identificador: sala.identificador },
                 { $push: { equipos_jugadores: nuevoEquipo } }
             );
         }
@@ -374,7 +399,7 @@ router.put('/unirse/:correo', async (req, res) => {
         // Usamos $addToSet para evitar duplicados si el usuario pulsa varias veces
         const usuarioActualizado = await Usuario.findOneAndUpdate(
             { correo: correo },
-            { $addToSet: { id_salas_unidas: parseInt(id_sala) } },
+            { $addToSet: { id_salas_unidas: sala.identificador } },
             { new: true }
         );
 

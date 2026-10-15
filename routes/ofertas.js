@@ -2,6 +2,18 @@ const express = require('express');
 const router = express.Router();
 const Sala = require('../models/Sala');
 
+function filtroSala(id) {
+    if (!id) return { identificador: null };
+    const str = String(id).trim().toUpperCase();
+    return {
+        $or: [
+            { identificador: str },
+            { identificador: String(id).trim() },
+            ...(!isNaN(id) ? [{ identificador: Number(id) }] : [])
+        ]
+    };
+}
+
 /**
  * POST /salas/:id/vender-pokemon
  * Pone un Pokémon del equipo del usuario a la venta en el mercado
@@ -10,7 +22,7 @@ const Sala = require('../models/Sala');
 router.post('/:id/vender-pokemon', async (req, res) => {
     try {
         const { usuario_vendedor, id_pokemon, precio_base } = req.body;
-        const salaId = parseInt(req.params.id);
+        const salaId = req.params.id;
 
         // Validaciones
         if (!usuario_vendedor || !id_pokemon || !precio_base) {
@@ -18,7 +30,7 @@ router.post('/:id/vender-pokemon', async (req, res) => {
         }
 
         // Obtener la sala
-        const sala = await Sala.findOne({ identificador: salaId });
+        const sala = await Sala.findOne(filtroSala(salaId));
         if (!sala) {
             return res.status(404).json({ error: 'Sala no encontrada' });
         }
@@ -93,13 +105,13 @@ router.post('/:id/vender-pokemon', async (req, res) => {
 router.post('/:id/cancelar-venta', async (req, res) => {
     try {
         const { id_pokemon, usuario_vendedor } = req.body;
-        const salaId = parseInt(req.params.id);
+        const salaId = req.params.id;
 
         if (!id_pokemon || !usuario_vendedor) {
             return res.status(400).json({ error: 'Datos incompletos' });
         }
 
-        const sala = await Sala.findOne({ identificador: salaId });
+        const sala = await Sala.findOne(filtroSala(salaId));
         if (!sala) return res.status(404).json({ error: 'Sala no encontrada' });
 
         const mercadoIndex = sala.mercado_disponible.findIndex(
@@ -140,7 +152,7 @@ router.post('/:id/cancelar-venta', async (req, res) => {
 router.post('/:id/hacer-oferta', async (req, res) => {
     try {
         const { id_pokemon, id_comprador, monto } = req.body;
-        const salaId = parseInt(req.params.id);
+        const salaId = req.params.id;
 
         // Validaciones
         if (!id_pokemon || !id_comprador || !monto || monto <= 0) {
@@ -148,7 +160,7 @@ router.post('/:id/hacer-oferta', async (req, res) => {
         }
 
         // Obtener la sala
-        const sala = await Sala.findOne({ identificador: salaId });
+        const sala = await Sala.findOne(filtroSala(salaId));
         if (!sala) {
             return res.status(404).json({ error: 'Sala no encontrada' });
         }
@@ -228,11 +240,11 @@ router.post('/:id/hacer-oferta', async (req, res) => {
 router.post('/:id/aceptar-oferta', async (req, res) => {
     try {
         const { id_pokemon, comprador, vendedor, monto } = req.body;
-        const salaId = parseInt(req.params.id);
+        const salaId = req.params.id;
         if (!id_pokemon || !comprador || !vendedor || !monto) {
             return res.status(400).json({ error: 'Datos incompletos' });
         }
-        const sala = await Sala.findOne({ identificador: salaId });
+        const sala = await Sala.findOne(filtroSala(salaId));
         if (!sala) return res.status(404).json({ error: 'Sala no encontrada' });
         
         const mercadoIndex = sala.mercado_disponible.findIndex(p => p.id_pokemon === id_pokemon);
@@ -307,8 +319,8 @@ router.post('/:id/aceptar-oferta', async (req, res) => {
 
         // --- EMITIR WEBSOCKETS ---
         if (global.io) {
-            global.io.emit('actualizacion_mercado', { identificador: salaId });
-            global.io.emit('actualizacion_equipo', { identificador: salaId });
+            global.io.emit('actualizacion_mercado', { identificador: sala.identificador });
+            global.io.emit('actualizacion_equipo', { identificador: sala.identificador });
         }
 
         res.json({
@@ -329,14 +341,14 @@ router.post('/:id/aceptar-oferta', async (req, res) => {
 router.post('/:id/rechazar-oferta', async (req, res) => {
     try {
         const { id_pokemon, id_comprador } = req.body;
-        const salaId = parseInt(req.params.id);
+        const salaId = req.params.id;
 
         if (!id_pokemon || !id_comprador) {
             return res.status(400).json({ error: 'Datos incompletos' });
         }
 
         // Obtener la sala
-        const sala = await Sala.findOne({ identificador: salaId });
+        const sala = await Sala.findOne(filtroSala(salaId));
         if (!sala) {
             return res.status(404).json({ error: 'Sala no encontrada' });
         }

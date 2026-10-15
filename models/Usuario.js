@@ -5,7 +5,7 @@ const UsuarioSchema = new mongoose.Schema({
     correo: { type: String, required: true, unique: true },
     contrasena: { type: String, required: true },
     icono: String,
-    id_salas_unidas: [Number] 
+    id_salas_unidas: [mongoose.Schema.Types.Mixed] 
 }, { collection: 'usuarios' });
 
 module.exports = mongoose.model('Usuario', UsuarioSchema);
