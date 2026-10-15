@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Sala = require('../models/Sala');
+const Usuario = require('../models/Usuario');
 
 function filtroSala(id) {
     if (!id) return { identificador: null };
@@ -257,6 +258,7 @@ router.post('/:id/reportar-resultado', async (req, res) => {
  * GET /salas/:id/calendario
  * Obtiene el calendario completo de la sala y la jornada actual.
  * Si no existe calendario y hay al menos 2 jugadores, lo genera automáticamente.
+ * Devuelve tanto los IDs/correos como los apodos (nombres) de los usuarios.
  */
 router.get('/:id/calendario', async (req, res) => {
     try {
@@ -269,10 +271,48 @@ router.get('/:id/calendario', async (req, res) => {
             sala = await generarYGuardarCalendario(sala.identificador);
         }
 
+        // Obtener los apodos (nombres) de todos los usuarios de la sala desde la colección Usuario
+        const correos = (sala.equipos_jugadores || []).map(e => e.usuario_id).filter(Boolean);
+        const usuariosDB = await Usuario.find({ correo: { $in: correos } });
+        const mapaApodos = {};
+        for (const u of usuariosDB) {
+            if (u.correo) {
+                mapaApodos[u.correo.toLowerCase().trim()] = u.nombre || u.correo;
+            }
+        }
+
+        const resolverApodo = (idOEmail) => {
+            if (!idOEmail) return '';
+            if (idOEmail.includes('Descansa')) return idOEmail;
+            const norm = idOEmail.toLowerCase().trim();
+            if (mapaApodos[norm]) return mapaApodos[norm];
+            if (idOEmail.includes('@')) {
+                return idOEmail.split('@')[0];
+            }
+            return idOEmail;
+        };
+
+        const calendarioConApodos = (sala.calendario || []).map(jObj => ({
+            jornada: jObj.jornada,
+            partidos: (jObj.partidos || []).map(p => ({
+                local: p.local,
+                visitante: p.visitante,
+                local_nombre: resolverApodo(p.local),
+                visitante_nombre: resolverApodo(p.visitante),
+                listo_local: p.listo_local,
+                listo_visitante: p.listo_visitante,
+                ganador: p.ganador,
+                ganador_nombre: p.ganador ? resolverApodo(p.ganador) : null,
+                estado: p.estado,
+                detalles: p.detalles
+            }))
+        }));
+
         res.json({
             jornada_actual: sala.jornada_actual || 1,
-            calendario: sala.calendario || [],
-            horario_combate_activo: esHorarioDeCombate()
+            calendario: calendarioConApodos,
+            horario_combate_activo: esHorarioDeCombate(),
+            mapa_apodos: mapaApodos
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -318,6 +358,7 @@ router.get('/:id/estado-combate', async (req, res) => {
         let soyLocal = false;
         let estoyListo = false;
         let rivalListo = false;
+        let rivalId = null;
         let rivalNombre = null;
 
         if (jornadaObj) {
@@ -326,7 +367,12 @@ router.get('/:id/estado-combate', async (req, res) => {
                 soyLocal = miPartido.local === usuarioId;
                 estoyListo = soyLocal ? miPartido.listo_local : miPartido.listo_visitante;
                 rivalListo = soyLocal ? miPartido.listo_visitante : miPartido.listo_local;
-                rivalNombre = soyLocal ? miPartido.visitante : miPartido.local;
+                rivalId = soyLocal ? miPartido.visitante : miPartido.local;
+
+                if (rivalId) {
+                    const rivalUserDoc = await Usuario.findOne({ correo: rivalId });
+                    rivalNombre = rivalUserDoc ? rivalUserDoc.nombre : (rivalId.includes('@') ? rivalId.split('@')[0] : rivalId);
+                }
             }
         }
 
@@ -337,6 +383,7 @@ router.get('/:id/estado-combate', async (req, res) => {
             partido: miPartido,
             estoy_listo: estoyListo,
             rival_listo: rivalListo,
+            rival_id: rivalId,
             rival_nombre: rivalNombre,
             puede_marcar_listo: horarioActivo && miPartido && miPartido.estado === 'pendiente' && !estoyListo
         });
